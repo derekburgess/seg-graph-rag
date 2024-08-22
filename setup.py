@@ -18,7 +18,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='SEG-RAG',
+    name='seg-graph-rag',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
@@ -46,7 +46,7 @@ setup(
     ],
 
     # What does your project relate to?
-    keywords='RAG, LangChain, Parquet',
+    keywords='RAG, LangChain, Parquet, Graph, Neo4j, OpenAI',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -90,8 +90,8 @@ setup(
     entry_points={
        'console_scripts': [
            'seg = seg_rag.seg:main',
-           'rag = seg_rag.rag:main',
-           'graph = seg_rag.graph:main'
+           'graph = seg_rag.graph:main',
+           'rag = seg_rag.rag:main'
        ],
     },
 )
