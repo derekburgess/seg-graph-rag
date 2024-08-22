@@ -1,0 +1,7 @@
+/build
+/datasets/*.parquet
+/flagged
+/SEG_RAG.egg-info
+.env
+logs/
+__pycache__/

@@ -1,0 +1,7 @@
+pymupdf
+pyarrow
+pandas
+neo4j
+openai
+langchain
+gradio
