@@ -1,22 +1,18 @@
-# SEG-GRAPH-RAG
+# seg-graph-rag
 
-Segmented or Graph Retrieval Augmented Generation. At its core, this is a simple 2 command RAG CLI. It can create individual Parquet files per document (SEG), and provide document querying using OpenAI (RAG). It also works with Neo4j and provides commands and options to process parquet datasets into a graph database, allowing for graph based RAG.
+Segmented and/or Graph Retrieval Augmented Generation. At its core, this is a simple 2 or 3 command RAG CLI (or Gradio UI). It can create individual Parquet files per document (SEG), and provide document querying using OpenAI (RAG). It also works with Neo4j and provides commands and options to process parquet datasets into a graph database, allowing for graph based RAG.
 
 Models: `text-embedding-3-small` and `gpt-3.5-turbo`, `gpt-4,` or `gpt-4o`.
 
 
 ## Setup
 
-Recommended:
-
 Create an environment, such as:
 
-`conda create --name SEG-RAG python=3.12`
+`conda create --name seg-graph-rag python=3.12`
 
 
-Required:
-
-Configure the environment and install the Python project.
+Configure the environment and install the Python project:
 
 `conda env config vars set OPENAI_API_KEY=value`
 
@@ -26,14 +22,16 @@ Configure the environment and install the Python project.
 
 `pip install .`
 
+
 Everything is hardcoded to use a local datasets directory:
 
 `mkdir datasets`
 
 
-Optional:
+Note: At this point you can operate the Segmented RAG using only 2 commands.
 
-If you want to use the graph approach, download and install the Neo4j desktop app.
+
+If you want to use the graph approach, download and install the Neo4j desktop app, which will handle the driver install and provide some useful graph GUI tools.
 
 Configure the environment to work with Neo4j:
 
@@ -45,37 +43,40 @@ Configure the environment to work with Neo4j:
 
 `NEO4J_PASSWORD` (you set)
 
-Create a Neo4j database called seg-graph-rag.
+
+Note: At this point you will need to use all 3 commands to create Parquet files and process them into the Neo4j graph.
 
 
 ## Usage
 
-To process a PDF into vectors, stored as a Parquet file, run:
+To process a PDF into vectors, stored as a Parquet dataset run:
 
 `seg --document PATH --dataset NAME`
 
 e.x., `seg --document Documents/test_documents/test.pdf --dataset test_dataset`
 
-Note: There is no need to add .parquet when creating a dataset. You can also continue to add PDF's to a dataset by calling it again.
+Note: There is no need to add .parquet when creating a dataset. You can also continue to add PDF's to a dataset by calling it again with a different PDF.
 
 
 To process Parquet datasets into the graph database:
 
-`graph --dataset NAME`
+`graph --dataset NAME --database NAME`
 
-e.x., `graph --dataset test_dataset`
+e.x., `graph --dataset test_dataset --database neo4j`
 
 
-To querty and existing parquert dataset, run:
+To RAG a Parquert dataset run:
 
 `rag --dataset NAME --model MODEL --chunks INT --query QUERY`
 
-e.x., `rag --dataset test_dataset --model gpt-4 --chunks 100 --query "What is this about?"`
+e.x., `rag --dataset test_dataset --model gpt-4 --chunks 50 --query "What is this about?"`
 
 
-You can pass an argument to query the entire graph database like so:
+To RAG the graph database run:
 
-`rag --graph --model MODEL --chunks INT --query QUERY`
+`rag --graph --database NAME --model MODEL --chunks INT --query QUERY`
+
+e.x., `rag --graph --database neo4j --model gpt-4 --chunks 50 --query "What is this about?"`
 
 
 You can list available datasets by running:
@@ -83,7 +84,7 @@ You can list available datasets by running:
 `rag --list`
 
 
-You can also spin up a Gradio based web UI for iteracting with the RAG side by running:
+You can spin up a Gradio based web UI by running:
 
 `rag --interface`
 

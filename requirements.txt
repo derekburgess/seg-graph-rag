@@ -4,4 +4,5 @@ pandas
 neo4j
 openai
 langchain
+scikit-learn
 gradio

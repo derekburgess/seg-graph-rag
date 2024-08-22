@@ -36,14 +36,14 @@ def find_relevant_chunks(client, df, query, num_chunks):
     return relevant_chunks['chunk'].tolist()
 
 
-def query_graph_for_chunks(driver, client, query, num_chunks):
+def query_graph_for_chunks(driver, database, client, query, num_chunks):
     print(f"\nQuerying Neo4j graph for chunks...", "\n")
     def get_all_chunks(tx):
         result = tx.run("MATCH (t:TextChunk) RETURN t.text AS text, t.embedding AS embedding")
         chunks = [(record["text"], record["embedding"]) for record in result]
         return chunks
 
-    with driver.session() as session:
+    with driver.session(database=database) as session:
         chunks = session.read_transaction(get_all_chunks)
     
     if not chunks:
@@ -75,10 +75,10 @@ def list_datasets():
     return [dataset[:-8] for dataset in datasets]
 
 
-def gradio_interface(client, driver):
-    def process_query(use_graph, dataset, model, query, chunks):
+def gradio_interface(client, driver, database):
+    def process_query(use_graph, dataset, model, query, chunks, database):
         if use_graph:
-            relevant_chunks = query_graph_for_chunks(driver, client, query, chunks)  # Correct order: driver first
+            relevant_chunks = query_graph_for_chunks(driver, database, client, query, num_chunks=chunks)
         else:
             df = load_parquet(dataset)
             relevant_chunks = find_relevant_chunks(client, df, query, chunks)
@@ -94,26 +94,28 @@ def gradio_interface(client, driver):
 
     with gr.Blocks() as interface:
         with gr.Row():
-            use_graph = gr.Checkbox(label="Use Neo4j Graph")
-            dataset = gr.Dropdown(choices=datasets, label="Select a Dataset")
+            use_graph = gr.Checkbox(label="Use Neo4j Graph?")
+            database = gr.Textbox(label="Enter Neo4j Database Name")
+            dataset = gr.Dropdown(choices=datasets, label="Or, Select a Parquet Dataset")
             model = gr.Dropdown(choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o"], label="Select a Model")
             chunks = gr.Slider(minimum=1, maximum=100, value=20, step=1, label="Number of Chunks")
 
         with gr.Row():
             query = gr.Textbox(label="Enter a Query")
-
+            
         output = gr.Textbox(label="Response")
 
         submit_btn = gr.Button("Submit")
-        submit_btn.click(fn=process_query, inputs=[use_graph, dataset, model, query, chunks], outputs=output)
+        submit_btn.click(fn=process_query, inputs=[use_graph, dataset, model, query, chunks, database], outputs=output)
 
     interface.launch(share=True)
 
 
 def main():
     parser = argparse.ArgumentParser(description='Search Parquet dataset or Neo4j graph for relevant chunks, pass chunks to OpenAI for response generation.')
-    parser.add_argument('--dataset', type=str, help='Base name for the output Parquet dataset, no need to add .parquet extension.')
+    parser.add_argument('--dataset', type=str, help='Base name for the input Parquet dataset, no need to add .parquet extension.')
     parser.add_argument('--graph', action='store_true', help='Query the entire Neo4j graph for relevant chunks.')
+    parser.add_argument('--database', type=str, help='Name of the Neo4j database to connect to.')
     parser.add_argument('--model', type=str, default="gpt-3.5-turbo", choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o"], help='OpenAI model to use for response generation (options: gpt-3.5-turbo, gpt-4, gpt-4o).')
     parser.add_argument('--query', type=str, help='Query, also used to find and return relevant chunks in the dataset or graph.')
     parser.add_argument('--chunks', type=int, default=50, help='Number of relevant chunks to return.')
@@ -124,12 +126,12 @@ def main():
     uri = os.getenv("NEO4J_URI")
     username = os.getenv("NEO4J_USERNAME")
     password = os.getenv("NEO4J_PASSWORD")
-    database = "seg-graph-rag"
-    driver = GraphDatabase.driver(uri, auth=(username, password), database=database)
+    database = args.database
+    driver = GraphDatabase.driver(uri, auth=(username, password))
     client = OpenAI()
 
     if args.interface:
-        gradio_interface(client, driver)
+        gradio_interface(client, driver, database)
     elif args.list:
         datasets = list_datasets()
         print("\nAvailable datasets:")
@@ -145,7 +147,7 @@ def main():
         else:
             print("No relevant chunks found, adjust your query or select a different dataset.")
     elif args.graph and args.query:
-        relevant_chunks = query_graph_for_chunks(driver, client, args.query, args.chunks)
+        relevant_chunks = query_graph_for_chunks(driver, database, client, args.query, args.chunks)
         if relevant_chunks:
             response = generate_response(client, args.model, relevant_chunks, args.query)
             print(f"{response}", "\n")
