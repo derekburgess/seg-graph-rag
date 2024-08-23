@@ -9,15 +9,15 @@ import gradio as gr
 
 
 def load_parquet(dataset):
-    print(f"\nLoading dataset: {dataset}", "\n")
+    print(f"\nLoading dataset: {dataset}")
     if not dataset.endswith('.parquet'):
         dataset += '.parquet'
     file_path = os.path.join('./datasets', dataset)
     return pq.read_table(file_path).to_pandas()
 
 
-def generate_embeddings(client, text):
-    print(f"Generating query embeddings...", "\n")
+def generate_query_embeddings(client, text):
+    print(f"Generating query embeddings...")
     embedding_model = "text-embedding-3-small"
     response = client.embeddings.create(
         input=text,
@@ -28,8 +28,8 @@ def generate_embeddings(client, text):
 
 
 def find_relevant_chunks(client, df, query, num_chunks):
-    query_embedding = generate_embeddings(client, query)
-    print(f"Using consine similarity to return the {num_chunks} most relevant chunks...", "\n")
+    query_embedding = generate_query_embeddings(client, query)
+    print(f"Using consine similarity to return the {num_chunks} most relevant chunks...")
     similarities = cosine_similarity([query_embedding], df['embedding'].tolist())
     top_indices = similarities.argsort()[0][-num_chunks:][::-1]
     relevant_chunks = df.iloc[top_indices]
@@ -37,9 +37,10 @@ def find_relevant_chunks(client, df, query, num_chunks):
 
 
 def query_graph_for_chunks(driver, database, client, query, num_chunks):
-    print(f"\nQuerying Neo4j graph for chunks...", "\n")
+    print(f"\nQuerying Neo4j graph: {database} for chunks using node embeddings...")
+    
     def get_all_chunks(tx):
-        result = tx.run("MATCH (t:TextChunk) RETURN t.text AS text, t.embedding AS embedding")
+        result = tx.run("MATCH (t:TextChunk) RETURN t.text AS text, t.node_embedding AS embedding")
         chunks = [(record["text"], record["embedding"]) for record in result]
         return chunks
 

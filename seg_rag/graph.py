@@ -18,7 +18,7 @@ def create_dataset_node(driver, database, dataset_name):
     execute_query(driver, database, query, parameters)
 
 
-def node_exists(driver, database, text, dataset_name):
+def check_node_exists(driver, database, text, dataset_name):
     query = """
     MATCH (t:TextChunk {text: $text, dataset: $dataset})
     RETURN t
@@ -37,16 +37,16 @@ def create_nodes(driver, database, df, dataset_name):
     
     for index, row in df.iterrows():
         unique_id = f"{dataset_name}_{index}"
-        if not node_exists(driver, database, row['chunk'], dataset_name):
+        if not check_node_exists(driver, database, row['chunk'], dataset_name):
             query = """
             MATCH (d:Dataset {name: $dataset})
-            CREATE (t:TextChunk {id: $id, text: $text, embedding: $embedding, dataset: $dataset})
+            CREATE (t:TextChunk {id: $id, text: $text, text_embedding: $text_embedding, dataset: $dataset})
             CREATE (d)-[:CONTAINS]->(t)
             """
             parameters = {
                 "id": unique_id,
                 "text": row['chunk'],
-                "embedding": row['embedding'],
+                "text_embedding": row['embedding'],
                 "dataset": dataset_name
             }
             execute_query(driver, database, query, parameters)
@@ -55,26 +55,26 @@ def create_nodes(driver, database, df, dataset_name):
 def get_all_text_chunks(driver, database):
     query = """
     MATCH (t:TextChunk)
-    RETURN t.id AS id, t.embedding AS embedding
+    RETURN t.id AS id, t.text_embedding AS text_embedding
     """
     with driver.session(database=database) as session:
         result = session.run(query)
-        chunks = [(record["id"], record["embedding"]) for record in result]
+        chunks = [(record["id"], record["text_embedding"]) for record in result]
     return chunks
 
 
-def relationship_exists(driver, database, id1, id2):
-    query = """
-    MATCH (a:TextChunk {id: $id1})-[r:SIMILAR_TO]->(b:TextChunk {id: $id2})
+def check_relationship_exists(driver, database, id1, id2, relationship_type):
+    query = f"""
+    MATCH (a:TextChunk {{id: $id1}})-[r:{relationship_type}]->(b:TextChunk {{id: $id2}})
     RETURN r
     """
     parameters = {"id1": id1, "id2": id2}
     with driver.session(database=database) as session:
         result = session.run(query, parameters)
         return result.single() is not None
-  
 
-def create_relationships(driver, database, df, dataset_name):
+
+def create_similarity_relationships_text_embeddings(driver, database, df, dataset_name):
     existing_chunks = get_all_text_chunks(driver, database)
     new_embeddings = df['embedding'].tolist()
     new_ids = [f"{dataset_name}_{i}" for i in range(len(new_embeddings))]
@@ -91,10 +91,79 @@ def create_relationships(driver, database, df, dataset_name):
             if similarity_score > 0.8:
                 id1 = all_chunks[i][0]
                 id2 = all_chunks[j][0]
-                if id1 != id2 and not relationship_exists(driver, database, id1, id2):
+                if id1 != id2 and not check_relationship_exists(driver, database, id1, id2, "SIMILAR_TO_TEXT"):
                     query = """
                     MATCH (a:TextChunk {id: $id1}), (b:TextChunk {id: $id2})
-                    CREATE (a)-[:SIMILAR_TO {score: $score}]->(b)
+                    CREATE (a)-[:SIMILAR_TO_TEXT {score: $score}]->(b)
+                    """
+                    parameters = {
+                        "id1": id1,
+                        "id2": id2,
+                        "score": similarity_score
+                    }
+                    execute_query(driver, database, query, parameters)
+
+
+def create_node_embeddings(driver, database):
+    query = """
+    CALL gds.graph.project('textGraph', 'TextChunk', 'SIMILAR_TO_TEXT', {
+        nodeProperties: ['text_embedding'],
+        relationshipProperties: []
+    })
+    """
+    execute_query(driver, database, query)
+
+    query = """
+    CALL gds.node2vec.stream('textGraph', {
+        embeddingDimension: 1536,
+        iterations: 10,
+        walkLength: 80
+    })
+    YIELD nodeId, embedding
+    RETURN gds.util.asNode(nodeId).id AS id, embedding
+    """
+    with driver.session(database=database) as session:
+        result = session.run(query)
+        embeddings = {record["id"]: record["embedding"] for record in result}
+
+    for node_id, embedding in embeddings.items():
+        query = """
+        MATCH (t:TextChunk {id: $id})
+        SET t.node_embedding = $node_embedding
+        """
+        parameters = {"id": node_id, "node_embedding": embedding}
+        execute_query(driver, database, query, parameters)
+
+    query = """
+    CALL gds.graph.drop('textGraph')
+    """
+    execute_query(driver, database, query)
+
+
+def create_similarity_relationships_node_embeddings(driver, database):
+    query = """
+    MATCH (t:TextChunk)
+    RETURN t.id AS id, t.node_embedding AS node_embedding
+    """
+    with driver.session(database=database) as session:
+        result = session.run(query)
+        all_chunks = [(record["id"], record["node_embedding"]) for record in result]
+
+    all_embeddings = [embedding for _, embedding in all_chunks]
+    similarity_matrix = cosine_similarity(all_embeddings)
+    
+    for i in range(len(all_chunks)):
+        for j in range(len(all_chunks)):
+            if i == j:
+                continue
+            similarity_score = similarity_matrix[i][j]
+            if similarity_score > 0.8:
+                id1 = all_chunks[i][0]
+                id2 = all_chunks[j][0]
+                if id1 != id2 and not check_relationship_exists(driver, database, id1, id2, "SIMILAR_TO_NODES"):
+                    query = """
+                    MATCH (a:TextChunk {id: $id1}), (b:TextChunk {id: $id2})
+                    CREATE (a)-[:SIMILAR_TO_NODES {score: $score}]->(b)
                     """
                     parameters = {
                         "id1": id1,
@@ -108,7 +177,9 @@ def process_dataset(driver, database, dataset_path, dataset_name):
     print(f"\nProcessing dataset: {dataset_name} into: {database}", "\n")
     df = pd.read_parquet(dataset_path)
     create_nodes(driver, database, df, dataset_name)
-    create_relationships(driver, database, df, dataset_name)
+    create_similarity_relationships_text_embeddings(driver, database, df, dataset_name)
+    create_node_embeddings(driver, database)
+    create_similarity_relationships_node_embeddings(driver, database)
 
 
 def main():
