@@ -5,6 +5,9 @@ from neo4j import GraphDatabase
 import pyarrow.parquet as pq
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
+from ragas import evaluate
+from ragas.metrics import faithfulness
+from datasets import Dataset
 import gradio as gr
 
 
@@ -69,6 +72,16 @@ def generate_response(client, model, chunks, query):
         ]
     )
     return response.choices[0].message.content
+
+
+def evaluate_faithfulness(query, response, chunks):
+    ragas_data = Dataset.from_dict({
+        "question": [query],
+        "answer": [response],
+        "contexts": [chunks]  # Changed from 'context' to 'contexts'
+    })
+    result = evaluate(ragas_data, metrics=[faithfulness])
+    return result['faithfulness']
 
 
 def list_datasets():
@@ -139,21 +152,21 @@ def main():
         for dataset in datasets:
             print(f"- {dataset}")
         print("\n")
-    elif args.dataset and args.query:
-        df = load_parquet(args.dataset)
-        relevant_chunks = find_relevant_chunks(client, df, args.query, args.chunks)
+    elif (args.dataset or args.graph) and args.query:
+        if args.dataset:
+            df = load_parquet(args.dataset)
+            relevant_chunks = find_relevant_chunks(client, df, args.query, args.chunks)
+        else:
+            relevant_chunks = query_graph_for_chunks(driver, database, client, args.query, args.chunks)
+        
         if relevant_chunks:
             response = generate_response(client, args.model, relevant_chunks, args.query)
-            print(f"{response}", "\n")
+            print(f"Response:\n{response}\n")
+            
+            faithfulness_score = evaluate_faithfulness(args.query, response, relevant_chunks)
+            print(f"Faithfulness Score: {faithfulness_score}", "\n")
         else:
-            print("No relevant chunks found, adjust your query or select a different dataset.")
-    elif args.graph and args.query:
-        relevant_chunks = query_graph_for_chunks(driver, database, client, args.query, args.chunks)
-        if relevant_chunks:
-            response = generate_response(client, args.model, relevant_chunks, args.query)
-            print(f"{response}", "\n")
-        else:
-            print("No relevant chunks found in the graph.")
+            print("No relevant chunks found. Adjust your query or select a different dataset/graph.")
     else:
         parser.print_help()
 

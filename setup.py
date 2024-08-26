@@ -89,9 +89,9 @@ setup(
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
        'console_scripts': [
-           'seg = seg_rag.seg:main',
-           'graph = seg_rag.graph:main',
-           'rag = seg_rag.rag:main'
+           'seg = seg_graph_rag.seg:main',
+           'graph = seg_graph_rag.graph:main',
+           'rag = seg_graph_rag.rag:main'
        ],
     },
 )

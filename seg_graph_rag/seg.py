@@ -1,10 +1,25 @@
 import argparse
 import os
 import fitz
+import nltk
+from nltk.corpus import stopwords
+import re
 import pyarrow as pa
 import pyarrow.parquet as pq
 from openai import OpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+
+nltk.download('stopwords')
+stop_words = set(stopwords.words('english'))
+
+
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r'\b\w{1,2}\b', '', text)
+    text = re.sub(r'[^\w\s]', '', text)
+    text = ' '.join(word for word in text.split() if word not in stop_words)
+    return text
 
 
 def generate_embeddings(text):
@@ -40,13 +55,13 @@ def process_pdf(file_path, output_name):
             if block_text:
                 processed_chunks = text_splitter.split_text(block_text)
                 for chunk_text in processed_chunks:
-                    embedding = generate_embeddings(chunk_text)
-                    
+                    cleaned_text = clean_text(chunk_text)
+                    embedding = generate_embeddings(cleaned_text)
                     print(f"Chunk:\n{chunk_text}\n")
                     print(f"Embedding:\n{embedding}\n")
-                    
-                    chunk_texts.append(chunk_text)
-                    embeddings.append(embedding)
+                    if embedding is not None:
+                        chunk_texts.append(cleaned_text)
+                        embeddings.append(embedding)
 
     new_table = pa.table({
         'chunk': chunk_texts,

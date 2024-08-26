@@ -74,34 +74,34 @@ def check_relationship_exists(driver, database, id1, id2, relationship_type):
         return result.single() is not None
 
 
-def create_similarity_relationships_text_embeddings(driver, database, df, dataset_name):
-    existing_chunks = get_all_text_chunks(driver, database)
+def create_similarity_relationships_text_embeddings(driver, database, df, dataset_name, existing_chunks=None):
+    if existing_chunks is None:
+        existing_chunks = get_all_text_chunks(driver, database)
+        
     new_embeddings = df['embedding'].tolist()
     new_ids = [f"{dataset_name}_{i}" for i in range(len(new_embeddings))]
 
-    all_chunks = existing_chunks + list(zip(new_ids, new_embeddings))
-    all_embeddings = [embedding for _, embedding in all_chunks]
-    similarity_matrix = cosine_similarity(all_embeddings)
-    
-    for i in range(len(existing_chunks), len(all_chunks)):
-        for j in range(len(all_chunks)):
-            if i == j:
-                continue
-            similarity_score = similarity_matrix[i][j]
+    for new_id, new_embedding in zip(new_ids, new_embeddings):
+        all_chunks = existing_chunks + [(new_id, new_embedding)]
+        all_embeddings = [embedding for _, embedding in all_chunks]
+        similarity_matrix = cosine_similarity([new_embedding], all_embeddings)[0]
+
+        for j, similarity_score in enumerate(similarity_matrix):
             if similarity_score > 0.8:
-                id1 = all_chunks[i][0]
                 id2 = all_chunks[j][0]
-                if id1 != id2 and not check_relationship_exists(driver, database, id1, id2, "SIMILAR_TO_TEXT"):
+                if new_id != id2 and not check_relationship_exists(driver, database, new_id, id2, "SIMILAR_TO_TEXT"):
                     query = """
                     MATCH (a:TextChunk {id: $id1}), (b:TextChunk {id: $id2})
                     CREATE (a)-[:SIMILAR_TO_TEXT {score: $score}]->(b)
                     """
                     parameters = {
-                        "id1": id1,
+                        "id1": new_id,
                         "id2": id2,
                         "score": similarity_score
                     }
                     execute_query(driver, database, query, parameters)
+
+        existing_chunks.append((new_id, new_embedding))
 
 
 def create_node_embeddings(driver, database):
@@ -135,7 +135,7 @@ def create_node_embeddings(driver, database):
         execute_query(driver, database, query, parameters)
 
     query = """
-    CALL gds.graph.drop('textGraph')
+    CALL gds.graph.drop('textGraph', false)
     """
     execute_query(driver, database, query)
 
@@ -173,11 +173,28 @@ def create_similarity_relationships_node_embeddings(driver, database):
                     execute_query(driver, database, query, parameters)
 
 
-def process_dataset(driver, database, dataset_path, dataset_name):
-    print(f"\nProcessing dataset: {dataset_name} into: {database}", "\n")
+def process_dataset(driver, database, dataset_path, dataset_name, batch_size=None):
+    print(f"\nProcessing dataset: {dataset_name} into: {database}\n")
+
     df = pd.read_parquet(dataset_path)
-    create_nodes(driver, database, df, dataset_name)
-    create_similarity_relationships_text_embeddings(driver, database, df, dataset_name)
+    
+    if batch_size:
+        print(f"Processing in batches of {batch_size} rows", "\n")
+        num_batches = len(df) // batch_size + (1 if len(df) % batch_size > 0 else 0)
+        existing_chunks = get_all_text_chunks(driver, database)
+        
+        for batch_num in range(num_batches):
+            batch_df = df.iloc[batch_num * batch_size:(batch_num + 1) * batch_size]
+            print(f"Processing batch {batch_num + 1} of {num_batches}")
+            create_nodes(driver, database, batch_df, dataset_name)
+            create_similarity_relationships_text_embeddings(driver, database, batch_df, dataset_name, existing_chunks)
+
+            existing_chunks.extend([(f"{dataset_name}_{i}", row['embedding']) for i, row in batch_df.iterrows()])
+    else:
+        print("Processing entire dataset at once", "\n")
+        create_nodes(driver, database, df, dataset_name)
+        create_similarity_relationships_text_embeddings(driver, database, df, dataset_name)
+
     create_node_embeddings(driver, database)
     create_similarity_relationships_node_embeddings(driver, database)
 
@@ -186,6 +203,7 @@ def main():
     parser = argparse.ArgumentParser(description='Populate Neo4j graph with data from a specific Parquet dataset.')
     parser.add_argument('--dataset', type=str, required=True, help='Base name for the input Parquet dataset, no need to add .parquet extension.')
     parser.add_argument('--database', type=str, required=True, help='Name of the Neo4j database to connect to.')
+    parser.add_argument('--batch', type=int, help='Number of rows to process per batch.')
 
     args = parser.parse_args()
     uri = os.getenv("NEO4J_URI")
@@ -200,7 +218,7 @@ def main():
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f"The dataset: {dataset_path} does not exist. Please check your path and try again.")
 
-    process_dataset(driver, database, dataset_path, dataset_name)
+    process_dataset(driver, database, dataset_path, dataset_name, args.batch)
 
     driver.close()
 
