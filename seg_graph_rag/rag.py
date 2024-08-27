@@ -8,7 +8,6 @@ from openai import OpenAI
 from ragas import evaluate
 from ragas.metrics import faithfulness
 from datasets import Dataset
-import gradio as gr
 
 
 def load_parquet(dataset):
@@ -66,7 +65,7 @@ def generate_response(client, model, chunks, query):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "This is a Retrieval-Augmented Generation (RAG) pipeline. You will receive relevant document chunks and are expected to return a response based on the query. Please structure your response as follows: 1) Restate the query, return a newline. 2) Provide a summary of the document chunks, return a newline. 3) Return a response to the query using the additional document chunks to inform your output. Ensure your response is clean, clear, and concise."
+            {"role": "system", "content": "This is a Retrieval-Augmented Generation (RAG) pipeline. You will receive relevant document chunks and are expected to return a response based on the query. Please structure your response as follows: 1) Restate the query, return a newline. 2) Provide a summary of the document chunks, return a newline. 3) Return a response to the query using the additional document chunks to inform your output. Avoid using markdown formatting in your response, but ensure your response is clean, clear, and concise."
             },
             {"role": "user", "content": input_text}
         ]
@@ -78,7 +77,7 @@ def evaluate_faithfulness(query, response, chunks):
     ragas_data = Dataset.from_dict({
         "question": [query],
         "answer": [response],
-        "contexts": [chunks]  # Changed from 'context' to 'contexts'
+        "contexts": [chunks]
     })
     result = evaluate(ragas_data, metrics=[faithfulness])
     return result['faithfulness']
@@ -87,42 +86,6 @@ def evaluate_faithfulness(query, response, chunks):
 def list_datasets():
     datasets = [f for f in os.listdir('./datasets') if f.endswith('.parquet')]
     return [dataset[:-8] for dataset in datasets]
-
-
-def gradio_interface(client, driver, database):
-    def process_query(use_graph, dataset, model, query, chunks, database):
-        if use_graph:
-            relevant_chunks = query_graph_for_chunks(driver, database, client, query, num_chunks=chunks)
-        else:
-            df = load_parquet(dataset)
-            relevant_chunks = find_relevant_chunks(client, df, query, chunks)
-        
-        if relevant_chunks:
-            response = generate_response(client, model, relevant_chunks, query)
-            print(f"Response:\n{response}\n")
-            return response
-        else:
-            return "No relevant chunks found, adjust your query or select a different dataset."
-
-    datasets = list_datasets()
-
-    with gr.Blocks() as interface:
-        with gr.Row():
-            use_graph = gr.Checkbox(label="Use Neo4j Graph?")
-            database = gr.Textbox(label="Enter Neo4j Database Name")
-            dataset = gr.Dropdown(choices=datasets, label="Or, Select a Parquet Dataset")
-            model = gr.Dropdown(choices=["gpt-3.5-turbo", "gpt-4", "gpt-4o"], label="Select a Model")
-            chunks = gr.Slider(minimum=1, maximum=100, value=20, step=1, label="Number of Chunks")
-
-        with gr.Row():
-            query = gr.Textbox(label="Enter a Query")
-            
-        output = gr.Textbox(label="Response")
-
-        submit_btn = gr.Button("Submit")
-        submit_btn.click(fn=process_query, inputs=[use_graph, dataset, model, query, chunks, database], outputs=output)
-
-    interface.launch(share=True)
 
 
 def main():
@@ -134,7 +97,6 @@ def main():
     parser.add_argument('--query', type=str, help='Query, also used to find and return relevant chunks in the dataset or graph.')
     parser.add_argument('--chunks', type=int, default=50, help='Number of relevant chunks to return.')
     parser.add_argument('--list', action='store_true', help='Returns a list of available datasets.')
-    parser.add_argument('--interface', action='store_true', help='Launch Gradio interface, sharing set to true.')
 
     args = parser.parse_args()
     uri = os.getenv("NEO4J_URI")
@@ -144,9 +106,7 @@ def main():
     driver = GraphDatabase.driver(uri, auth=(username, password))
     client = OpenAI()
 
-    if args.interface:
-        gradio_interface(client, driver, database)
-    elif args.list:
+    if args.list:
         datasets = list_datasets()
         print("\nAvailable datasets:")
         for dataset in datasets:

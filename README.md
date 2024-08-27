@@ -1,6 +1,6 @@
 # seg-graph-rag
 
-Segmented and/or Graph Retrieval Augmented Generation. At its core, this is a simple 2 or 3 command RAG CLI (or Gradio UI). It can create individual Parquet files per document (SEG), and provide document querying using OpenAI (RAG). It also works with Neo4j and provides commands and options to process parquet datasets into a graph database, allowing for graph based RAG.
+Segmented and/or Graph Retrieval Augmented Generation. A simple 2 or 3 command RAG CLI. Create Parquet datasets from PDF documents (SEG), process datasets into Neo4j (GRAPH), and query datasets or graphs using OpenAI (RAG).
 
 Models: `text-embedding-3-small` and `gpt-3.5-turbo`, `gpt-4,` or `gpt-4o`.
 
@@ -25,11 +25,11 @@ Everything is hardcoded to use a local datasets directory:
 
 `mkdir datasets`
 
-Note: At this point you can operate the Segmented RAG using only 2 commands.
+At this point you can operate the Segmented RAG using only 2 commands.
 
 If you want to use the graph approach, download and install the Neo4j desktop app, which will handle the driver install and provide some useful graph GUI tools.
 
-Note: After installing Neo4j GUI, create a Project and DBMS, after which you can install the needed Graph Design Science Library plugin.
+After installing Neo4j GUI, create a Project and DBMS, after which you can install the needed Graph Design Science Library plugin.
 
 Configure the environment to work with Neo4j:
 
@@ -41,18 +41,20 @@ Configure the environment to work with Neo4j:
 
 `NEO4J_PASSWORD` (you set)
 
-Note: At this point you will need to use all 3 commands to create Parquet files and process them into the Neo4j graph.
+At this point you will need to use all 3 commands to create Parquet files and process them into the Neo4j graph.
 
 
 ## Usage
 
 To process a PDF into vectors, stored as a Parquet dataset run:
 
-`seg --document PATH --dataset NAME`
+`seg --document PATH --dataset NAME --images BINARY`
 
 e.x., `seg --document Documents/test_documents/test.pdf --dataset test_dataset`
 
-Note: There is no need to add .parquet when creating a dataset. You can also continue to add PDF's to a dataset by calling it again with a different PDF.
+There is no need to add .parquet when creating a dataset. You can also continue to add PDF's to a dataset by calling it again with a different PDF.
+
+Adding `--images` will send the images in the PDF to OpenAI for summary and store the summaries as chunks.
 
 To process Parquet datasets into the graph database:
 
@@ -75,8 +77,4 @@ e.x., `rag --graph --database neo4j --model gpt-4 --chunks 50 --query "What is t
 You can list available datasets by running:
 
 `rag --list`
-
-You can spin up a Gradio based web UI by running:
-
-`rag --interface`
 

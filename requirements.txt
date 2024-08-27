@@ -7,4 +7,3 @@ scikit-learn
 openai
 langchain
 ragas
-gradio
