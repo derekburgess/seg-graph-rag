@@ -6,7 +6,8 @@ import pyarrow.parquet as pq
 from sklearn.metrics.pairwise import cosine_similarity
 from openai import OpenAI
 from ragas import evaluate
-from ragas.metrics import faithfulness
+from ragas.metrics import faithfulness, answer_relevancy, context_utilization
+from ragas.metrics.critique import correctness, coherence
 from datasets import Dataset
 
 
@@ -19,7 +20,6 @@ def load_parquet(dataset):
 
 
 def generate_query_embeddings(client, text):
-    print(f"Generating query embeddings...")
     embedding_model = "text-embedding-3-small"
     response = client.embeddings.create(
         input=text,
@@ -30,8 +30,9 @@ def generate_query_embeddings(client, text):
 
 
 def find_relevant_chunks(client, df, query, num_chunks):
+    print(f"Generating query embeddings...")
     query_embedding = generate_query_embeddings(client, query)
-    print(f"Using consine similarity to return the {num_chunks} most relevant chunks...")
+    print(f"Searching for the {num_chunks} most relevant chunks...")
     similarities = cosine_similarity([query_embedding], df['embedding'].tolist())
     top_indices = similarities.argsort()[0][-num_chunks:][::-1]
     relevant_chunks = df.iloc[top_indices]
@@ -39,8 +40,7 @@ def find_relevant_chunks(client, df, query, num_chunks):
 
 
 def query_graph_for_chunks(driver, database, client, query, num_chunks):
-    print(f"\nQuerying Neo4j graph: {database} for chunks using node embeddings...")
-    
+    print(f"\nConnecting to database: {database}")
     def get_all_chunks(tx):
         result = tx.run("MATCH (t:TextChunk) RETURN t.text AS text, t.node_embedding AS embedding")
         chunks = [(record["text"], record["embedding"]) for record in result]
@@ -65,7 +65,7 @@ def generate_response(client, model, chunks, query):
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "This is a Retrieval-Augmented Generation (RAG) pipeline. You will receive relevant document chunks and are expected to return a response based on the query. Please structure your response as follows: 1) Restate the query, return a newline. 2) Provide a summary of the document chunks, return a newline. 3) Return a response to the query using the additional document chunks to inform your output. Avoid using markdown formatting in your response, but ensure your response is clean, clear, and concise."
+            {"role": "system", "content": "This is a Retrieval-Augmented Generation (RAG) pipeline. You will receive relevant document chunks and are expected to return a response based on the query. Please structure your response as follows: 1) Restate the query, return a newline. 2) Provide a summary of the document chunks, return a newline. 3) Return a response to the query using the additional document chunks to inform your output. Ensure your response is clean, clear, and concise. DO NOT use markdown formatting in your response."
             },
             {"role": "user", "content": input_text}
         ]
@@ -73,14 +73,14 @@ def generate_response(client, model, chunks, query):
     return response.choices[0].message.content
 
 
-def evaluate_faithfulness(query, response, chunks):
+def evaluate_with_ragas(query, response, chunks):
     ragas_data = Dataset.from_dict({
         "question": [query],
         "answer": [response],
         "contexts": [chunks]
     })
-    result = evaluate(ragas_data, metrics=[faithfulness])
-    return result['faithfulness']
+    results = evaluate(ragas_data, metrics=[faithfulness, answer_relevancy, context_utilization, correctness, coherence])
+    return results
 
 
 def list_datasets():
@@ -122,9 +122,14 @@ def main():
         if relevant_chunks:
             response = generate_response(client, args.model, relevant_chunks, args.query)
             print(f"Response:\n{response}\n")
-            
-            faithfulness_score = evaluate_faithfulness(args.query, response, relevant_chunks)
-            print(f"Faithfulness Score: {faithfulness_score}", "\n")
+        
+            ragas_metrics = evaluate_with_ragas(args.query, response, relevant_chunks)
+            print("\nRagas Metrics:")
+            print(f"Faithfulness: {ragas_metrics['faithfulness']}")
+            print(f"Answer Relevance: {ragas_metrics['answer_relevancy']}")
+            print(f"Context Utilization: {ragas_metrics['context_utilization']}")
+            print(f"Correctness: {ragas_metrics['correctness']}")
+            print(f"Coherence: {ragas_metrics['coherence']}", "\n")
         else:
             print("No relevant chunks found. Adjust your query or select a different dataset/graph.")
     else:
