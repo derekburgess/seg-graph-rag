@@ -56,7 +56,7 @@ def generate_image_summary(client, image_data):
     return "Image: " + response.choices[0].message.content
 
 
-def process_pdf(client,file_path, output_name, process_images=False):
+def process_pdf(client, file_path, output_name, process_images=False):
     text_splitter = RecursiveCharacterTextSplitter()
     doc = fitz.open(file_path)
     chunk_texts = []
